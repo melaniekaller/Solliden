@@ -33,20 +33,12 @@ class UserSchema(BaseModelConfig):
     lastname: str = Field(max_length=100)
     email: EmailStr
     password: str
+    notifications_enabled: Optional[bool] = True
 
 class UserOutSchema(BaseModel):
-    id: int
     firstname: str
     lastname: str
     email: EmailStr
-
-
-class UserRegisterSchema(BaseModel):
-    firstname: str = Field(max_length=100)
-    lastname: str = Field(max_length=100)
-    email: EmailStr
-    password: str
-
 
 class UserUpdateSchema(BaseModel):
     firstname: Optional[str] = Field(max_length=100)
@@ -55,13 +47,11 @@ class UserUpdateSchema(BaseModel):
 
 
 class BookingSchema(BaseModelConfig):
-    booking_id: int
     arrival_date: date
     departure_date: date
 
 class BookingOutSchema(BaseModel):
     user_id: int
-    booking_id: int
     arrival_date: date
     departure_date: date
 

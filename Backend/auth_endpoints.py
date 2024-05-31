@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload, selectinload, load_only
 from sqlalchemy import select, update, delete, insert
 from app.models.models import User
-from app.schemas.schemas import NewPasswordSchema, Token, UserOutSchema, UserRegisterSchema, UserUpdateSchema
+from app.schemas.schemas import NewPasswordSchema, Token, UserOutSchema, UserUpdateSchema, UserSchema
 from sqlalchemy.exc import IntegrityError
 from app.security import hash_password, verify_password, create_access_token, get_current_user
 from fastapi.security import OAuth2PasswordRequestForm
@@ -27,7 +27,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv(
 router = APIRouter(tags=["auth"])
 
 @router.post("/user/create", status_code=status.HTTP_201_CREATED)
-def register_user(users: UserRegisterSchema, db: Session = Depends(get_db)) -> UserOutSchema:
+def register_user(users: UserSchema, db: Session = Depends(get_db)) -> UserOutSchema:
     hashed_password: str = hash_password(users.password)
     users.password = hashed_password
     try:

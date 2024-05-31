@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from app.email import booking_confirmation_email
 from app.db_setup import init_db, get_db
 from app.models.models import User, Booking
-from app.schemas.schemas import BookingSchema, BookingUpdateSchema, BookingOutSchema, UserRegisterSchema, UserOutSchema
+from app.schemas.schemas import BookingSchema, BookingUpdateSchema, BookingOutSchema, UserOutSchema, UserSchema
 from app.security import get_current_user, hash_password, verify_password, create_access_token
 app = FastAPI()
 
@@ -48,7 +48,7 @@ def read_users_me(current_user: Annotated[User, Depends(get_current_user)]):
     return current_user
 
 @app.put("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def update_user(user_data: UserRegisterSchema, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+def update_user(user_data: UserSchema, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == current_user.id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -95,10 +95,25 @@ def create_booking(booking_data: BookingSchema, current_user: Annotated[User, De
         raise HTTPException(status_code=400, detail="Database error")
 
 
-# GET - List bookings by date
+# GET - List bookings by id and user
+@app.get("/bookings/current-and-upcoming", status_code=status.HTTP_200_OK)
+def list_current_and_upcoming_bookings(current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    today = date.today()
+    # Filter to select bookings that end today or later, and are not cancelled
+    current_and_upcoming_bookings = db.query(Booking).filter(
+        Booking.user_id == current_user.id,
+        Booking.departure_date >= today,  # Check against today's date
+        Booking.is_cancelled == False  # Exclude cancelled bookings
+    ).all()
+    if not current_and_upcoming_bookings:
+        raise HTTPException(status_code=404, detail="No current or upcoming bookings found")
+    return current_and_upcoming_bookings
+
+
+# GET - List all bookings by date
 @app.get("/bookings/{formattedDate}", status_code=status.HTTP_200_OK)
-def list_booking(formattedDate: date, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
-    bookings = db.query(Booking).filter(and_(Booking.arrival_date == formattedDate, Booking.user_id == current_user.id)).all()
+def list_all_bookings(formattedDate: date, db: Session = Depends(get_db)):
+    bookings = db.query(Booking).filter(Booking.arrival_date == formattedDate).all()
     if not bookings:
         raise HTTPException(status_code=404, detail="No bookings found for this date")
     return bookings
@@ -127,9 +142,9 @@ def rebook(formattedDate: date, booking_data: BookingUpdateSchema, current_user:
     return booking
 
 
-@app.put("/bookings/cancel/{booking_id}")
-def cancel_booking(booking_id: int, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
-    booking = db.query(Booking).filter(Booking.id == booking_id, Booking.user_id == current_user.id).first()
+@app.put("/bookings/cancel/{id}")
+def cancel_booking(id: int, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    booking = db.query(Booking).filter(Booking.id == id, Booking.user_id == current_user.id).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
