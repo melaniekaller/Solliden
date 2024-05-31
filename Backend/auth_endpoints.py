@@ -5,13 +5,13 @@ from fastapi import Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload, selectinload, load_only
 from sqlalchemy import select, update, delete, insert
-from app.models import User, WeeklyPlan, Habit, Todo, SleepTracker, WorkoutTracker, JournalYourDay, MoodTracker
-from app.schemas.schemas import NewPasswordSchema, Token, UserOutSchema, UserRegisterSchema, WeeklyPlanSchema, HabitSchema, TodoSchema, SleepTrackerSchema, WorkoutTrackerSchema, JournalYourDaySchema, MoodTrackerSchema 
-from sqlalchemy.exc import IntegrityError, NoResultFound
+from app.models.models import User
+from app.schemas.schemas import NewPasswordSchema, Token, UserOutSchema, UserRegisterSchema, UserUpdateSchema
+from sqlalchemy.exc import IntegrityError
 from app.security import hash_password, verify_password, create_access_token, get_current_user
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
-from datetime import timedelta, datetime
+from datetime import timedelta
 from dotenv import load_dotenv 
 import os
 from app.email import generate_password_reset_token, send_password_reset_email, get_user_by_email, verify_password_reset_token
@@ -19,11 +19,10 @@ from app.email import generate_password_reset_token, send_password_reset_email, 
 
 load_dotenv(override=True)
 
-# TODO CREATE SETTINGSCLASS USING FASTAPI SOLUTION
-ALGORITHM = os.getenv("ALGORITHM")  # e.g HS256
-SECRET_KEY = os.getenv("SECRET_KEY")  # e.g asdsadsadsakjdsiaojdkasjdksaj
+ALGORITHM = os.getenv("ALGORITHM")
+SECRET_KEY = os.getenv("SECRET_KEY")
 ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv(
-    "ACCESS_TOKEN_EXPIRE_MINUTES")  # e.g 100
+    "ACCESS_TOKEN_EXPIRE_MINUTES")
 
 router = APIRouter(tags=["auth"])
 

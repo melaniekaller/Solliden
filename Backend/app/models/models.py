@@ -1,6 +1,6 @@
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date
-from datetime import datetime
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Date, Boolean
+from datetime import datetime, timezone
 
 Base = declarative_base()
 
@@ -11,7 +11,7 @@ class User(Base):
     lastname = Column(String(100), nullable=False)
     email = Column(String(100), nullable=False, unique=True)
     password = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
 
     # Relationship to Booking
     bookings = relationship("Booking", back_populates="user")
@@ -22,6 +22,9 @@ class Booking(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     arrival_date = Column(Date, nullable=False)
     departure_date = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    is_cancelled = Column(Boolean, default=False)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationship to User
     user = relationship("User", back_populates="bookings")

@@ -1,14 +1,6 @@
-from fastapi import HTTPException, status, Response, Depends, APIRouter
-from app.db_setup import get_db
 from sqlalchemy.orm import Session
-from sqlalchemy import select, update, delete, insert
-from sqlalchemy.exc import IntegrityError
-from app.models import User
-from app.schemas.schemas import Token, UserRegisterSchema, UserOutSchema
-from fastapi.security import OAuth2PasswordRequestForm
-from typing import Annotated
-from app.security import get_current_user, create_access_token, hash_password, verify_password
-from pydantic import ValidationError
+from sqlalchemy import select
+from app.models.models import User
 from datetime import timedelta
 from dotenv import load_dotenv
 import os
@@ -16,8 +8,7 @@ import datetime
 from jose import jwt, JWTError
 import requests
 import json
-from app.security import ALGORITHM, EMAIL_RESET_TOKEN_EXPIRE_HOURS, SECRET_KEY , ACCESS_TOKEN_EXPIRE_MINUTES, POSTMARK_TOKEN
-
+from app.security import EMAIL_RESET_TOKEN_EXPIRE_HOURS, SECRET_KEY, POSTMARK_TOKEN
 
 load_dotenv(override=True)
 
@@ -82,3 +73,34 @@ def verify_password_reset_token(token: str) -> str | None:
         return str(decoded_token["sub"])
     except JWTError:
         return None
+    
+
+
+def booking_confirmation_email(to_email: str, subject: str, html_content: str):
+    message = {
+        "From": "your-email@yourdomain.com",
+        "To": to_email,
+        "Subject": subject,
+        "HtmlBody": html_content,
+        "MessageStream": "outbound"
+    }
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Postmark-Server-Token": os.getenv("POSTMARK_TOKEN")
+    }
+
+    try:
+        response = requests.post(
+            "https://api.postmarkapp.com/email", headers=headers, data=json.dumps(message))
+        response.raise_for_status()  # This will raise an exception for HTTP errors
+        print(f"Email sent to {to_email}: {response.status_code}")
+    except requests.exceptions.HTTPError as e:
+        print(f"Failed to send email to {to_email}, HTTP error: {e.response.status_code}")
+        try:
+            print(e.response.json())
+        except ValueError:
+            print("Error response content is not JSON")
+    except Exception as e:
+        print(f"General error when sending email to {to_email}: {str(e)}")

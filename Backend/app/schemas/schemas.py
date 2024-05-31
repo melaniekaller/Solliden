@@ -9,7 +9,7 @@ class BaseModelConfig(BaseModel):
     @validator("*", pre=True)
     def set_config(cls, value):
         # Set the config for the current class and its subclasses
-        cls.Config = ConfigDict(orm_mode=True, from_attributes=True)
+        cls.Config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
         return value
 
     class Config:
@@ -40,16 +40,19 @@ class UserOutSchema(BaseModel):
     lastname: str
     email: EmailStr
 
+
 class UserRegisterSchema(BaseModel):
     firstname: str = Field(max_length=100)
     lastname: str = Field(max_length=100)
     email: EmailStr
     password: str
 
+
 class UserUpdateSchema(BaseModel):
     firstname: Optional[str] = Field(max_length=100)
     lastname: Optional[str] = Field(max_length=100)
     email: Optional[EmailStr]
+
 
 class BookingSchema(BaseModelConfig):
     booking_id: int

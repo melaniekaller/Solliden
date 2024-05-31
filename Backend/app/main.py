@@ -1,34 +1,23 @@
 from fastapi import FastAPI, HTTPException, Depends, status
-from app.db_setup import init_db, get_db
-from contextlib import asynccontextmanager
-from fastapi import Request
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session, joinedload, selectinload, load_only
-from sqlalchemy import select, update, delete, insert, and_
-from app.models.models import User, Booking
-from app.schemas.schemas import UserSchema, BookingSchema, BookingOutSchema, BookingUpdateSchema
-from sqlalchemy.exc import IntegrityError, NoResultFound
-from auth_endpoints import router as auth_router
-from app.security import get_current_user
-from typing import Annotated
 from fastapi.responses import JSONResponse
-from datetime import date, time, datetime
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import select, and_, delete
+from sqlalchemy.exc import IntegrityError
+from contextlib import asynccontextmanager
+from typing import Annotated
+from datetime import datetime, timedelta, date
+from fastapi import HTTPException
 
+from app.email import booking_confirmation_email
+from app.db_setup import init_db, get_db
+from app.models.models import User, Booking
+from app.schemas.schemas import BookingSchema, BookingUpdateSchema, BookingOutSchema, UserRegisterSchema, UserOutSchema
+from app.security import get_current_user, hash_password, verify_password, create_access_token
+app = FastAPI()
 
-origin = [
-    "http://localhost:3000",
-    "http://localhost:5173"
-]
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    init_db()
-    yield
-
-app = FastAPI(lifespan=lifespan)
-
-app.include_router(auth_router)
-
+# Setup CORS
+origin = ["http://localhost:3000", "http://localhost:5173"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origin,
@@ -37,41 +26,143 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-@app.post("/booking", tags=["bookings"], status_code=status.HTTP_201_CREATED)
-def add_booking(bookings: BookingSchema, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
-    try:
-        user_id = current_user.id
-        db_booking = Booking(**bookings.model_dump(), users_id=user_id)
-        db.add(db_booking)
-        db.commit()
-    except IntegrityError as e:
-        raise HTTPException(status_code=400, detail="Database error")
-    return db_booking
+# Initialize DB
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+app = FastAPI(lifespan=lifespan)
 
-@app.put("/bookings/{formattedDate}", status_code=status.HTTP_204_NO_CONTENT)
-def update_booking(formattedDate: date, bookings_id: BookingUpdateSchema, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
-    query = select(Booking).where(and_(Booking.arrival_date == formattedDate, Booking.users_id == current_user.id))
-    db_booking = db.execute(query).scalar_one_or_none()
-    if not db_booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
+# Including authorization router
+from auth_endpoints import router as auth_router
+app.include_router(auth_router)
 
-    for key, value in bookings_id.model_dump(exclude_unset=True).items():
-        setattr(db_booking, key, value)
+
+@app.get("/users")
+def list_users(db: Session = Depends(get_db)):
+    users = db.query(User).all()
+    return users
+
+@app.get("/users/me")
+def read_users_me(current_user: Annotated[User, Depends(get_current_user)]):
+    return current_user
+
+@app.put("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def update_user(user_data: UserRegisterSchema, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.firstname = user_data.firstname if user_data.firstname else user.firstname
+    user.lastname = user_data.lastname if user_data.lastname else user.lastname
+    user.email = user_data.email if user_data.email else user.email
+    for key, value in user_data.model_dump(exclude_unset=True).items():
+        setattr(user, key, value)
     db.commit()
-    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content={"message": "Booking updated successfully"})
+    return {"message": "User updated successfully"}
 
-@app.get("/bookings/{formattedDate}", status_code=200)
-def list_bookings(formattedDate: date, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)) -> list[BookingOutSchema]:
-    booking = db.scalars(select(Booking).where(and_(Booking.arrival_date == formattedDate, Booking.users_id == current_user.id)))
+@app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: int, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    result = db.query(User).filter(User.id == user_id).delete()
+    db.commit()
+    if result == 0:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="User not found")
+    return JSONResponse(content={"message": "User deleted successfully"}, status_code=status.HTTP_204_NO_CONTENT)
+
+
+# POST - Create a new booking
+@app.post("/bookings", status_code=status.HTTP_201_CREATED)
+def create_booking(booking_data: BookingSchema, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    try:
+        new_booking = Booking(**booking_data.model_dump(exclude_unset=True), user_id=current_user.id)
+        db.add(new_booking)
+        db.commit()
+        db.refresh(new_booking)
+
+        # Send notification to all users
+        users = db.query(User).all()
+        for user in users:
+            if user.notifications_enabled:
+                booking_confirmation_email(
+                    user.email,
+                    "New Booking Created",
+                    f"<strong>{current_user.firstname} {current_user.lastname}</strong> has booked Solliden from {new_booking.arrival_date} to {new_booking.departure_date}."
+                )
+        return new_booking
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Database error")
+
+
+# GET - List bookings by date
+@app.get("/bookings/{formattedDate}", status_code=status.HTTP_200_OK)
+def list_booking(formattedDate: date, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    bookings = db.query(Booking).filter(and_(Booking.arrival_date == formattedDate, Booking.user_id == current_user.id)).all()
+    if not bookings:
+        raise HTTPException(status_code=404, detail="No bookings found for this date")
+    return bookings
+
+
+# PUT - Update a booking by date
+@app.put("/bookings/{formattedDate}", status_code=status.HTTP_204_NO_CONTENT)
+def rebook(formattedDate: date, booking_data: BookingUpdateSchema, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    booking = db.query(Booking).filter(and_(Booking.arrival_date == formattedDate, Booking.user_id == current_user.id)).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
+    for key, value in booking_data.model_dump(exclude_unset=True).items():
+        setattr(booking, key, value)
+    db.commit()
+
+    # Send notification to all users
+    users = db.query(User).all()
+    for user in users:
+        if user.notifications_enabled:
+            booking_confirmation_email(
+                user.email,
+                "Booking Updated",
+                f"<strong>{current_user.firstname} {current_user.lastname}</strong> has updated their booking to from {booking.arrival_date} to {booking.departure_date}."
+            )
+
     return booking
 
-@app.delete("/bookings/{booking_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_booking(booking_id: int, db: Session = Depends(get_db)):
-    query = delete(Booking).where(Booking.booking_id == booking_id)
-    result = db.execute(query)
+
+@app.put("/bookings/cancel/{booking_id}")
+def cancel_booking(booking_id: int, current_user: Annotated[User, Depends(get_current_user)], db: Session = Depends(get_db)):
+    booking = db.query(Booking).filter(Booking.id == booking_id, Booking.user_id == current_user.id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    # Check if the cancellation is allowed based on the arrival date
+    if booking.arrival_date - datetime.datetime.utcnow().date() < timedelta(days=10):
+        raise HTTPException(status_code=400, detail="Cancellation must be made at least 10 days before the arrival date")
+
+    days_until_arrival = (booking.arrival_date - datetime.datetime.utcnow().date()).days
+    payment_required = False
+    message = "Booking cancelled successfully."
+
+    if days_until_arrival < 10:
+        payment_required = True
+        message += " However, since the cancellation is made less than 10 days before arrival, a cancellation fee applies."
+
+
+    # Update booking to reflect cancellation
+    booking.is_cancelled = True
+    booking.cancelled_at = datetime.datetime.utcnow()
     db.commit()
-    if result.rowcount == 0:
-        raise HTTPException(status_code= 404, detail= "Booking not found")
-    return {"message": "Booking deleted"}
+
+   # Send notification to all users
+    users = db.query(User).all()
+    email_subject = "Booking Cancelled"
+    email_content = f"<strong>{current_user.firstname} {current_user.lastname}</strong> has cancelled their booking from {booking.arrival_date} to {booking.departure_date}. {message if payment_required else ''}"
+
+    for user in users:
+        if user.notifications_enabled:
+            booking_confirmation_email(
+                user.email,
+                email_subject,
+                email_content
+            )
+
+    # Include the payment message in the response to the user who cancelled the booking
+    return {"message": message, "payment_required": payment_required}

@@ -15,14 +15,12 @@ from pydantic import ValidationError
 
 load_dotenv(override=True)
 
-# TODO CREATE SETTINGSCLASS USING FASTAPI SOLUTION
-ALGORITHM = os.getenv("ALGORITHM")  # e.g HS256
-SECRET_KEY = os.getenv("SECRET_KEY")  # e.g asdsadsadsakjdsiaojdkasjdksaj
+ALGORITHM = os.getenv("ALGORITHM")
+SECRET_KEY = os.getenv("SECRET_KEY")
 ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv(
-    "ACCESS_TOKEN_EXPIRE_MINUTES")  # e.g 100
+    "ACCESS_TOKEN_EXPIRE_MINUTES")
 EMAIL_RESET_TOKEN_EXPIRE_HOURS = os.getenv("EMAIL_RESET_TOKEN_EXPIRE_HOURS")
 POSTMARK_TOKEN = os.getenv("POSTMARK_TOKEN")
-
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/user/token")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -34,19 +32,17 @@ def hash_password(password: str):
 def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
 
-def create_access_token(data: dict, expires_delta: timedelta):
+def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + expires_delta
-
-    # to_encode["exp"] = expire # exakt lika dana
-    # it should now look something like this {"sub": 1, "exp": 12312301203210}
-    to_encode.update({"exp": expire})  # exakt like dana
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
 def verify_token_access(token: str, credentials_exception: HTTPException):
-    # token
-    # asdasDJSAHdsajdkasjdksak.jashkdasjdKSJDksakjdsa ----> {"exp": 12030123021, "sub": 5}
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=ALGORITHM)
         token_data = TokenPayload(**payload)
@@ -75,17 +71,6 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Session 
     )
     token_data = verify_token_access(token, credentials_exception)
     user = db.scalars(select(User).where(User.id == token_data.sub)).first()
+    if user is None:
+        raise credentials_exception
     return user
-
-# def protected_endpoint(token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)):
-#     token_data = verify_token_access(token, credentials_exception)
-#     return true
-
-# Email verification
-
-# Password reset
-
-
-
-
-# Activation code reset
