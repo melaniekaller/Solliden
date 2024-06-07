@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {},
+    fontFamily: {
+      Lora: ["Lora", "serif"],
+    },
   },
   plugins: [],
 }
